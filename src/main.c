@@ -9,12 +9,17 @@
 #define LED_BLUE_PIN GPIO_PIN_11
 #define LED_PORT GPIOC
 
+
 // define button pins (adjust according to your board)
 #define BUTTON_GREEN_PIN GPIO_PIN_0
 #define BUTTON_ORANGE_PIN GPIO_PIN_1
 #define BUTTON_RED_PIN GPIO_PIN_2
 #define BUTTON_BLUE_PIN GPIO_PIN_3
 #define BUTTON_PORT GPIOA
+
+//DAC pins
+#define DAC_PINS GPIO_PIN_4
+#define DAC_PORT GPIOA
 
 // game constants
 #define MAX_LEVEL 10
@@ -40,6 +45,8 @@ void set_led_brightness(uint8_t color, uint16_t brightness);
 bool check_button(uint8_t button);
 uint8_t get_button_press(void);
 void delay_ms(uint32_t ms);
+void setup_dac(void);
+void audio_feedback(uint32_t i);
 
 int main(void)
 {
@@ -47,6 +54,7 @@ int main(void)
     GPIO_Configure();
     SysTick_Configure();
     PWM_Configure();
+    setup_dac();
 
     // seed the random number generator using current systick value
     srand(SysTick->VAL);
@@ -80,6 +88,7 @@ int main(void)
                     {
                         // if incorrect, trigger game over sequence
                         game_over = true;
+                        audio_feedback(1); //plays sound to indicate incorrect
 
                         // flash all leds multiple times
                         for (int i = 0; i < 5; i++)
@@ -93,6 +102,7 @@ int main(void)
                     else
                     {
                         // input is correct, move to next step
+                        audio_feedback(2); //plays sound to indicate correct
                         current_input++;
                     }
                 }
@@ -102,6 +112,7 @@ int main(void)
 
             if (!game_over)
             {
+                audio_feedback(2); //plays sound to indicate correct
                 // flash leds quickly to indicate level success
                 for (int i = 0; i < 3; i++)
                 {
@@ -117,6 +128,7 @@ int main(void)
                 // check for win condition
                 if (current_level >= MAX_LEVEL)
                 {
+                    audio_feedback(2); //plays sound to indicate correct
                     // flash leds repeatedly to indicate victory
                     for (int i = 0; i < 10; i++)
                     {
@@ -148,6 +160,7 @@ int main(void)
         }
     }
 }
+
 
 void GPIO_Configure(void)
 {
@@ -332,4 +345,60 @@ void delay_ms(uint32_t ms)
     uint32_t start = HAL_GetTick();
     while ((HAL_GetTick() - start) < ms)
         ;
+}
+
+void audio_feedback(uint32_t i){
+
+    if(i == 1){ //incorrect
+        //run tone for 50 cycles
+        for(int k =0; k < 50; k++){
+            DAC->DHR12R1 = 0xFFF; //set high
+            DAC->SWTRIGR = DAC_SWTRIGR_SWTRIG1; //triggers conversion
+            delay_ms(2);
+
+            DAC->DHR12R1 = 0x000; //set low
+            DAC->SWTRIGR = DAC_SWTRIGR_SWTRIG1;
+            delay_ms(2);
+        }
+
+    }else if(i ==2){//correct
+        for(int k =0; k < 20; k++){
+            DAC->DHR12R1 = 0xFFF; //set high
+            DAC->SWTRIGR = DAC_SWTRIGR_SWTRIG1;
+            delay_ms(1);
+            
+            DAC->DHR12R1 = 0x000; //set low
+            DAC->SWTRIGR = DAC_SWTRIGR_SWTRIG1;
+            delay_ms(1);
+        }
+
+    }else{
+        return;
+    }
+
+}
+
+void setup_dac(void){
+    GPIO_InitTypeDef GPIO_InitStruct;
+
+    //enable port A
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+
+    //enable port for analog mode
+    GPIO_InitStruct.Pin = DAC_PINS;
+    GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(DAC_PORT, &GPIO_InitStruct);
+
+    //enable DAC
+    RCC->APB1ENR |= RCC_APB1ENR_DACEN;
+    //chanel 1
+
+    DAC -> CR &= ~DAC_CR_TSEL1; //clear trigger
+    DAC -> CR &= ~DAC_CR_BOFF1;
+    DAC -> CR |= DAC_CR_TEN1; //enable trigger for channel 1
+    DAC-> CR|= DAC_CR_TSEL1;//enable trigger
+    DAC->CR |= DAC_CR_EN1; //enable DAC
+
 }
